@@ -3,8 +3,8 @@
 <!--suppress HtmlDeprecatedAttribute -->
 <h1 align="center">ContainerSSH Service Library</h1>
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/containerssh/library-template?style=for-the-badge)](https://goreportcard.com/report/github.com/containerssh/library-template)
-[![LGTM Alerts](https://img.shields.io/lgtm/alerts/github/ContainerSSH/library-template?style=for-the-badge)](https://lgtm.com/projects/g/ContainerSSH/library-template/)
+[![Go Report Card](https://goreportcard.com/badge/github.com/containerssh/service?style=for-the-badge)](https://goreportcard.com/report/github.com/containerssh/service)
+[![LGTM Alerts](https://img.shields.io/lgtm/alerts/github/ContainerSSH/service?style=for-the-badge)](https://lgtm.com/projects/g/ContainerSSH/service/)
 
 This library provides a common way to manage multiple independent services in a single binary.
 
