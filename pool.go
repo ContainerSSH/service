@@ -4,8 +4,8 @@ import (
 	"errors"
 )
 
-// PoolAlreadyRunning is returned when a function is called and the pool is already running.
-var PoolAlreadyRunning = errors.New("cannot add service, pool already running")
+// ErrPoolAlreadyRunning is returned when a function is called and the pool is already running.
+var ErrPoolAlreadyRunning = errors.New("cannot add service, pool already running")
 
 // Pool is a handler for multiple services at once. It will run services in parallel in goroutines and terminate all
 //      services once a single one has exited.

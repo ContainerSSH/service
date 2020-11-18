@@ -146,7 +146,7 @@ func (p *pool) Add(s Service) error {
 	defer p.mutex.Unlock()
 
 	if p.running {
-		return PoolAlreadyRunning
+		return ErrPoolAlreadyRunning
 	}
 	s.OnReady(p.getServiceReadyHandler(s, false))
 	p.services = append(p.services, s)
