@@ -19,21 +19,19 @@ type Service interface {
 	// String returns the name of the service
 	String() string
 
-	Run(lifecycle Lifecycle) error
+	RunWithLifecycle(lifecycle Lifecycle) error
 }
 ```
 
 The Run function gets passed a [`Lifecycle`](lifecycle.go) object. It must call the appropriate lifecycle hooks:
 
 ```go
-func (s *myService) Run(lifecycle Lifecycle) error {
-    lifecycle.Starting()
+func (s *myService) RunWithLifecycle(lifecycle Lifecycle) error {
     //Do initialization here
     lifecycle.Running()
     for {
         // Do something
         if err != nil {
-            lifecycle.Crashed(err)
             return err
         }
         if lifecycle.ShouldStop() {
@@ -44,12 +42,13 @@ func (s *myService) Run(lifecycle Lifecycle) error {
             break
         }
     }
-    lifecycle.Stopped()
     return nil
 }
-``` 
+```
 
 For advanced use cases you can replace the `lifecycle.ShouldStop()` call with fetching the context directly using `lifecycle.Context()`. You can then use the context in a `select` statement.
+
+**Warning!** Do not call `RunWithLifecycle()` on the service directly. Instead, always call `Run()` on the lifecycle to enable accurate state tracking and error handling. 
 
 ## Creating a lifecycle
 
@@ -96,6 +95,8 @@ You can now use the Lifecycle to run the service:
 err := lifecycle.Run()
 ```
 
+**Warning!** Do not call `RunWithLifecycle()` on the service directly. Instead, always call `Run()` on the lifecycle to enable accurate state tracking and error handling.
+
 ## Using the service pool
 
 One of the advanced components in this library is the `Pool` object. It provides an overlay for managing multiple services in parallel, and it implements the `Service` interface itself. In other words, it can be nested.
@@ -103,7 +104,10 @@ One of the advanced components in this library is the `Pool` object. It provides
 First, let's create a pool: 
 
 ```go
-pool = service.NewPool(logger)
+pool := service.NewPool(
+    service.NewLifecycleFactory(logger),
+    logger,
+)
 ```
 
 You can then add subservices to the pool. When adding a service the pool will return the lifecycle object you can use to add hooks. The hook functions can be chained for easier configuration:

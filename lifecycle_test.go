@@ -10,25 +10,9 @@ import (
 	"github.com/containerssh/service"
 )
 
-type testService struct {
-}
-
-func (t *testService) String() string {
-	return "Test service"
-}
-
-func (t *testService) Run(lifecycle service.Lifecycle) error {
-	lifecycle.Starting()
-	lifecycle.Running()
-	<-lifecycle.Context().Done()
-	lifecycle.Stopping()
-	lifecycle.Stopped()
-	return nil
-}
-
 func TestLifecycle(t *testing.T) {
 	logger := standard.New()
-	l := service.NewLifecycle(&testService{}, logger)
+	l := service.NewLifecycle(newTestService(), logger)
 	starting := make(chan bool)
 	running := make(chan bool)
 	stopping := make(chan bool)
@@ -46,6 +30,10 @@ func TestLifecycle(t *testing.T) {
 	l.OnStopped(func(s service.Service, l service.Lifecycle) {
 		stopped <- true
 	})
+	l.OnCrashed(func(s service.Service, l service.Lifecycle, err error) {
+		t.Fail()
+	})
+
 	go func() {
 		if err := l.Run(); err != nil {
 			assert.Fail(t, "service crashed", err)
@@ -60,4 +48,37 @@ func TestLifecycle(t *testing.T) {
 	<-stopping
 	<-stopped
 	<-stopExited
+}
+
+func TestCrash(t *testing.T) {
+	logger := standard.New()
+	s := newTestService()
+	l := service.NewLifecycle(s, logger)
+	starting := make(chan bool)
+	running := make(chan bool)
+	crashed := make(chan bool, 1)
+	l.OnStarting(func(s service.Service, l service.Lifecycle) {
+		starting <- true
+	})
+	l.OnRunning(func(s service.Service, l service.Lifecycle) {
+		running <- true
+	})
+	l.OnCrashed(func(s service.Service, l service.Lifecycle, err error) {
+		crashed <- true
+	})
+	l.OnStopped(func(s service.Service, l service.Lifecycle) {
+		t.Fail()
+	})
+	l.OnStopping(func(s service.Service, l service.Lifecycle, shutdownContext context.Context) {
+		t.Fail()
+	})
+	go func() {
+		if err := l.Run(); err == nil {
+			assert.Fail(t, "service did not crash")
+		}
+	}()
+	<-starting
+	<-running
+	s.Crash()
+	<-crashed
 }

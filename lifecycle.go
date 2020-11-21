@@ -60,20 +60,11 @@ type Lifecycle interface {
 
 	// region Hook triggers
 
-	// Starting must be called by the service at the beginning of Run to indicate that it is starting.
-	Starting()
-
 	// Running must be called by the Service when it is ready to handle user requests.
 	Running()
 
 	// Stopping must be called by the Service before stopping to handle user requests. It returns the shutdown context.
 	Stopping() context.Context
-
-	// Stopped must be called by the Service after it has finished stopping.
-	Stopped()
-
-	// Crashed must be called by the Service if it is about to exit with an error.
-	Crashed(err error)
 
 	// endregion
 

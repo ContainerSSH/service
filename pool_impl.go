@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"sync"
 )
 
@@ -13,8 +12,8 @@ type pool struct {
 	serviceStates    map[Service]State
 	lifecycleFactory LifecycleFactory
 	running          bool
-	startupComplete  chan bool
-	stopComplete     chan bool
+	startupComplete  chan struct{}
+	stopComplete     chan struct{}
 	lastError        error
 	stopping         bool
 }
@@ -36,7 +35,7 @@ func (p *pool) Add(s Service) Lifecycle {
 	return l
 }
 
-func (p *pool) Run(lifecycle Lifecycle) error {
+func (p *pool) RunWithLifecycle(lifecycle Lifecycle) error {
 	p.mutex.Lock()
 	if p.running {
 		p.mutex.Unlock()
@@ -44,15 +43,14 @@ func (p *pool) Run(lifecycle Lifecycle) error {
 	}
 	p.running = true
 	p.stopping = false
-	p.startupComplete = make(chan bool, 1)
-	p.stopComplete = make(chan bool, 1)
+	p.startupComplete = make(chan struct{}, 1)
+	p.stopComplete = make(chan struct{}, 1)
 	p.mutex.Unlock()
 	defer func() {
 		p.mutex.Lock()
 		p.running = false
 		p.mutex.Unlock()
 	}()
-	lifecycle.Starting()
 
 	p.mutex.Lock()
 	if p.serviceStates == nil {
@@ -66,14 +64,17 @@ func (p *pool) Run(lifecycle Lifecycle) error {
 
 	stopped := false
 	startedServices := len(p.services)
-waitForStart:
+	finished := false
 	for i := 0; i < len(p.services); i++ {
 		select {
 		case <-p.startupComplete:
 		case <-p.stopComplete:
 			stopped = true
 			startedServices--
-			break waitForStart
+			finished = true
+		}
+		if finished {
+			break
 		}
 	}
 
@@ -85,9 +86,8 @@ waitForStart:
 			// One service stopped, initiate shutdown
 			startedServices--
 		case <-lifecycle.Context().Done():
-			p.mutex.Lock()
+			lifecycle.Stopping()
 			p.triggerStop(lifecycle.ShutdownContext())
-			p.mutex.Unlock()
 		}
 	} else {
 		p.triggerStop(context.Background())
@@ -96,39 +96,24 @@ waitForStart:
 	for i := 0; i < startedServices; i++ {
 		<-p.stopComplete
 	}
-	if p.lastError != nil {
-		lifecycle.Crashed(p.lastError)
-		return p.lastError
-	}
-	lifecycle.Stopped()
-	return nil
+	return p.lastError
 }
 
 func (p *pool) runService(service Service) {
 	go func() {
-		defer func() {
-			if err := recover(); err != nil {
-				p.mutex.Lock()
-				p.lifecycles[service].Crashed(fmt.Errorf("service crashed (%v)", err))
-				p.mutex.Unlock()
-			}
-		}()
-		if err := service.Run(p.lifecycles[service]); err != nil {
-			p.lifecycles[service].Crashed(err)
-		}
+		_ = p.lifecycles[service].Run()
 	}()
 }
 
 func (p *pool) onStateChange(s Service, l Lifecycle, newState State) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
 	if s == p {
 		return
 	}
 
+	p.mutex.Lock()
 	oldState := p.serviceStates[p]
 	p.serviceStates[s] = newState
+	p.mutex.Unlock()
 
 	if oldState == newState {
 		return
@@ -139,26 +124,39 @@ func (p *pool) onStateChange(s Service, l Lifecycle, newState State) {
 		return
 	case StateRunning:
 		select {
-		case p.startupComplete <- true:
+		case p.startupComplete <- struct{}{}:
 		default:
 		}
 	case StateStopping:
 		p.triggerStop(context.Background())
 	case StateStopped:
 		p.triggerStop(context.Background())
+		p.stopComplete <- struct{}{}
 	case StateCrashed:
 		p.lastError = l.Error()
 		p.triggerStop(context.Background())
+		p.stopComplete <- struct{}{}
 	}
 }
 
 func (p *pool) triggerStop(shutdownContext context.Context) {
+	p.mutex.Lock()
 	if p.stopping {
+		p.mutex.Unlock()
 		return
 	}
 	p.stopping = true
-	for _, s := range p.services {
+	svc := p.services
+	p.mutex.Unlock()
+
+	wg := &sync.WaitGroup{}
+	wg.Add(len(svc))
+	for _, s := range svc {
 		l := p.lifecycles[s]
-		l.Stop(shutdownContext)
+		go func() {
+			defer wg.Done()
+			l.Stop(shutdownContext)
+		}()
 	}
+	wg.Wait()
 }

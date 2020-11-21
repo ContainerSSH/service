@@ -20,6 +20,20 @@ func NewLifecycle(service Service, logger log.Logger) Lifecycle {
 	}
 }
 
+func NewLifecycleFactory(logger log.Logger) LifecycleFactory {
+	return &lifecycleFactory{
+		logger: logger,
+	}
+}
+
 type LifecycleFactory interface {
 	Make(service Service) Lifecycle
+}
+
+type lifecycleFactory struct {
+	logger log.Logger
+}
+
+func (l *lifecycleFactory) Make(service Service) Lifecycle {
+	return NewLifecycle(service, l.logger)
 }

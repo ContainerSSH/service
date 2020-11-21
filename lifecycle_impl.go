@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/containerssh/log"
@@ -70,15 +71,27 @@ func (l *lifecycle) Error() error {
 
 func (l *lifecycle) Stop(shutdownContext context.Context) {
 	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
 	l.shutdownContext = shutdownContext
-
+	l.mutex.Unlock()
 	l.cancelRun()
+	<-l.waitContext.Done()
 }
 
 func (l *lifecycle) Run() error {
-	return l.service.Run(l)
+	defer func() {
+		if crash := recover(); crash != nil {
+			l.crashed(fmt.Errorf("service paniced (%v)", crash))
+		}
+	}()
+
+	l.starting()
+	err := l.service.RunWithLifecycle(l)
+	if err != nil {
+		l.crashed(err)
+		return err
+	}
+	l.stopped()
+	return nil
 }
 
 func (l *lifecycle) callSimpleHook(hooks []func(s Service, l Lifecycle)) {
@@ -97,8 +110,9 @@ func (l *lifecycle) callSimpleHook(hooks []func(s Service, l Lifecycle)) {
 func (l *lifecycle) stateChange(state State) {
 	l.logger.Debugf("service %s is now %s", l.service.String(), l.state)
 	wg := &sync.WaitGroup{}
-	wg.Add(len(l.onStateChange))
-	for _, hook := range l.onStateChange {
+	stateChangeHandlers := l.onStateChange
+	wg.Add(len(stateChangeHandlers))
+	for _, hook := range stateChangeHandlers {
 		handler := hook
 		go func() {
 			defer wg.Done()
@@ -108,7 +122,7 @@ func (l *lifecycle) stateChange(state State) {
 	wg.Wait()
 }
 
-func (l *lifecycle) Starting() {
+func (l *lifecycle) starting() {
 	l.mutex.Lock()
 
 	l.state = StateStarting
@@ -152,16 +166,17 @@ func (l *lifecycle) Stopping() context.Context {
 	return shutdownContext
 }
 
-func (l *lifecycle) Stopped() {
+func (l *lifecycle) stopped() {
 	l.mutex.Lock()
 	l.state = StateStopped
 	l.mutex.Unlock()
 
 	l.stateChange(StateStopped)
 	l.callSimpleHook(l.onStopped)
+	l.cancelWaitContext()
 }
 
-func (l *lifecycle) Crashed(err error) {
+func (l *lifecycle) crashed(err error) {
 	l.mutex.Lock()
 	l.lastError = err
 	l.state = StateCrashed
@@ -178,6 +193,7 @@ func (l *lifecycle) Crashed(err error) {
 		}()
 	}
 	wg.Wait()
+	l.cancelWaitContext()
 }
 
 func (l *lifecycle) OnStateChange(f func(s Service, l Lifecycle, state State)) Lifecycle {
