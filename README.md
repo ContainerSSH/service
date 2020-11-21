@@ -10,23 +10,121 @@ This library provides a common way to manage multiple independent services in a 
 
 <p align="center"><strong>Note: This is a developer documentation.</strong><br />The user documentation for ContainerSSH is located at <a href="https://containerssh.github.io">containerssh.github.io</a>.</p>
 
-## Using this library
+## Creating a service
 
-This library provides two main components: the `Service` interface and the `Pool` implementation. Services are parts of code that can be started and shut down in a graceful manner. They also provide hooks when the service is ready to handle user requests and just before shutdown.
-
-The service interface is described in [service.go](service.go), while the pool behavior is described in [pool.go](pool.go). The `Pool` itself also implements a service so multiple pools can be nested.
-
-Together these two can be used to start multiple parallel services and shut down the pool when one of the services shuts down. For example:
+In order to create a service you must implement the [`Service` interface](service.go):
 
 ```go
-pool = service.NewPool()
-pool.Add(myService1)
-pool.Add(myService2)
+type Service interface {
+	// String returns the name of the service
+	String() string
+
+	Run(lifecycle Lifecycle) error
+}
+```
+
+The Run function gets passed a [`Lifecycle`](lifecycle.go) object. It must call the appropriate lifecycle hooks:
+
+```go
+func (s *myService) Run(lifecycle Lifecycle) error {
+    lifecycle.Starting()
+    //Do initialization here
+    lifecycle.Running()
+    for {
+        // Do something
+        if err != nil {
+            lifecycle.Crashed(err)
+            return err
+        }
+        if lifecycle.ShouldStop() {
+            shutdownContext := lifecycle.Stopping()
+            // Handle graceful shutdown.
+            // If shutdownContext expires, shut down immediately.
+            // Then exit out of the loop.
+            break
+        }
+    }
+    lifecycle.Stopped()
+    return nil
+}
+``` 
+
+For advanced use cases you can replace the `lifecycle.ShouldStop()` call with fetching the context directly using `lifecycle.Context()`. You can then use the context in a `select` statement.
+
+## Creating a lifecycle
+
+In order to run a service you need to create a `Lifecycle` object. Since `Lifecycle` is an interface you can implement it yourself, or you can use the default implementation:
+
+```
+lifecycle := service.NewLifecycle(service, logger)
+```
+
+The `service` parameter should be the associated service, while the `logger` parameter is a logger from [the ContainerSSH log library](https://github.com/containerssh/log).
+
+The lifecycle can be used to add hooks to the service. Calling these functions multiple times is supported, but the call order of hook functions is not guaranteed.
+
+```go
+lifecycle.OnStateChange(func(s service.Service, l service.Lifecycle, newState service.State) {
+    // do something
+})
+lifecycle.OnStarting(func(s service.Service, l service.Lifecycle) {
+    // do something
+})
+lifecycle.OnRunning(func(s service.Service, l service.Lifecycle) {
+    // do something
+})
+lifecycle.OnStopping(func(s service.Service, l service.Lifecycle, shutdownContext context.Context) {
+    // do something
+})
+lifecycle.OnStopped(func(s service.Service, l service.Lifecycle) {
+    // do something
+})
+lifecycle.OnCrashed(func(s service.Service, l service.Lifecycle, err error) {
+    // do something
+})
+```
+
+These hook functions can also be chained:
+
+```go
+lifecycle.OnStarting(myHandler).OnRunning(myHandler)
+```
+
+You can now use the Lifecycle to run the service:
+
+```go
+err := lifecycle.Run()
+```
+
+## Using the service pool
+
+One of the advanced components in this library is the `Pool` object. It provides an overlay for managing multiple services in parallel, and it implements the `Service` interface itself. In other words, it can be nested.
+
+First, let's create a pool: 
+
+```go
+pool = service.NewPool(logger)
+```
+
+You can then add subservices to the pool. When adding a service the pool will return the lifecycle object you can use to add hooks. The hook functions can be chained for easier configuration:
+
+```go
+_ = pool.
+    Add(myService1).
+    OnRunning(func (s Service, l Lifecycle) {
+        log.Printf("%s is now %s", s.String(), l.State())
+    })
+```
+
+Once the services are added the pool can be launched:
+
+```go
+lifecycle := service.NewLifecycle(pool)
 go func() {
-    err := pool.Run()
+    err := lifecycle.Run()
     // Handle errors here
 }
-pool.Shutdown(context.Background())
+lifecycle.Shutdown(context.Background())
 ```
 
 Ideally, the pool can be used to handle Ctrl+C and SIGTERM events:
@@ -37,7 +135,7 @@ signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 go func() {
     if _, ok := <-signals; ok {
         // ok means the channel wasn't closed
-        pool.Shutdown(
+        lifecycle.Shutdown(
             context.WithTimeout(
                 context.Background(),
                 20 * time.Second,
@@ -46,7 +144,7 @@ go func() {
     }
 }()
 // Wait for the pool to terminate.
-pool.Wait()
+lifecycle.Wait()
 // We are already shutting down, ignore further signals
 signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
 // close signals channel so the signal handler gets terminated
