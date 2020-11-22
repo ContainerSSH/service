@@ -7,14 +7,19 @@ import (
 )
 
 type testService struct {
-	crash chan bool
+	crash        chan bool
+	name         string
+	crashStartup bool
 }
 
 func (t *testService) String() string {
-	return "Test service"
+	return t.name
 }
 
 func (t *testService) RunWithLifecycle(lifecycle service.Lifecycle) error {
+	if t.crashStartup {
+		return errors.New("crash")
+	}
 	lifecycle.Running()
 	ctx := lifecycle.Context()
 	select {
@@ -26,6 +31,10 @@ func (t *testService) RunWithLifecycle(lifecycle service.Lifecycle) error {
 	}
 }
 
+func (t *testService) CrashStartup() {
+	t.crashStartup = true
+}
+
 func (t *testService) Crash() {
 	select {
 	case t.crash <- true:
@@ -33,8 +42,9 @@ func (t *testService) Crash() {
 	}
 }
 
-func newTestService() *testService {
+func newTestService(name string) *testService {
 	return &testService{
+		name:  name,
 		crash: make(chan bool, 1),
 	}
 }

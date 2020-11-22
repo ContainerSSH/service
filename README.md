@@ -55,12 +55,10 @@ For advanced use cases you can replace the `lifecycle.ShouldStop()` call with fe
 In order to run a service you need to create a `Lifecycle` object. Since `Lifecycle` is an interface you can implement it yourself, or you can use the default implementation:
 
 ```
-lifecycle := service.NewLifecycle(service, logger)
+lifecycle := service.NewLifecycle(service)
 ```
 
-The `service` parameter should be the associated service, while the `logger` parameter is a logger from [the ContainerSSH log library](https://github.com/containerssh/log).
-
-The lifecycle can be used to add hooks to the service. Calling these functions multiple times is supported, but the call order of hook functions is not guaranteed.
+The `service` parameter should be the associated service. The lifecycle can be used to add hooks to the service. Calling these functions multiple times is supported, but the call order of hook functions is not guaranteed.
 
 ```go
 lifecycle.OnStateChange(func(s service.Service, l service.Lifecycle, newState service.State) {
@@ -105,8 +103,7 @@ First, let's create a pool:
 
 ```go
 pool := service.NewPool(
-    service.NewLifecycleFactory(logger),
-    logger,
+    service.NewLifecycleFactory(),
 )
 ```
 

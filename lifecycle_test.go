@@ -4,15 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/containerssh/log/standard"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/containerssh/service"
 )
 
 func TestLifecycle(t *testing.T) {
-	logger := standard.New()
-	l := service.NewLifecycle(newTestService(), logger)
+	l := service.NewLifecycle(newTestService("Test service"))
 	starting := make(chan bool)
 	running := make(chan bool)
 	stopping := make(chan bool)
@@ -51,9 +49,8 @@ func TestLifecycle(t *testing.T) {
 }
 
 func TestCrash(t *testing.T) {
-	logger := standard.New()
-	s := newTestService()
-	l := service.NewLifecycle(s, logger)
+	s := newTestService("Test service")
+	l := service.NewLifecycle(s)
 	starting := make(chan bool)
 	running := make(chan bool)
 	crashed := make(chan bool, 1)

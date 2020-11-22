@@ -29,7 +29,8 @@ func (p *pool) Add(s Service) Lifecycle {
 	}
 	defer p.mutex.Unlock()
 	l := p.lifecycleFactory.Make(s)
-	l.OnStateChange(p.onStateChange)
+	l.OnStateChange(p.onServiceStateChange)
+	p.serviceStates[s] = StateStopped
 	p.services = append(p.services, s)
 	p.lifecycles[s] = l
 	return l
@@ -41,22 +42,15 @@ func (p *pool) RunWithLifecycle(lifecycle Lifecycle) error {
 		p.mutex.Unlock()
 		panic("bug: pool already running, cannot run again")
 	}
+	p.stopComplete = make(chan struct{}, len(p.services))
 	p.running = true
 	p.stopping = false
-	p.startupComplete = make(chan struct{}, 1)
-	p.stopComplete = make(chan struct{}, 1)
 	p.mutex.Unlock()
 	defer func() {
 		p.mutex.Lock()
 		p.running = false
 		p.mutex.Unlock()
 	}()
-
-	p.mutex.Lock()
-	if p.serviceStates == nil {
-		p.serviceStates = map[Service]State{}
-	}
-	p.mutex.Unlock()
 
 	for _, service := range p.services {
 		p.runService(service)
@@ -90,6 +84,7 @@ func (p *pool) RunWithLifecycle(lifecycle Lifecycle) error {
 			p.triggerStop(lifecycle.ShutdownContext())
 		}
 	} else {
+		lifecycle.Stopping()
 		p.triggerStop(context.Background())
 	}
 
@@ -105,13 +100,13 @@ func (p *pool) runService(service Service) {
 	}()
 }
 
-func (p *pool) onStateChange(s Service, l Lifecycle, newState State) {
+func (p *pool) onServiceStateChange(s Service, l Lifecycle, newState State) {
 	if s == p {
 		return
 	}
 
 	p.mutex.Lock()
-	oldState := p.serviceStates[p]
+	oldState := p.serviceStates[s]
 	p.serviceStates[s] = newState
 	p.mutex.Unlock()
 
@@ -152,7 +147,8 @@ func (p *pool) triggerStop(shutdownContext context.Context) {
 	wg := &sync.WaitGroup{}
 	wg.Add(len(svc))
 	for _, s := range svc {
-		l := p.lifecycles[s]
+		service := s
+		l := p.lifecycles[service]
 		go func() {
 			defer wg.Done()
 			l.Stop(shutdownContext)

@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-
-	"github.com/containerssh/log"
 )
 
 type lifecycle struct {
@@ -25,7 +23,6 @@ type lifecycle struct {
 	onStopping    []func(s Service, l Lifecycle, shutdownContext context.Context)
 	onStopped     []func(s Service, l Lifecycle)
 	onCrashed     []func(s Service, l Lifecycle, err error)
-	logger        log.Logger
 }
 
 func (l *lifecycle) Context() context.Context {
@@ -71,10 +68,14 @@ func (l *lifecycle) Error() error {
 
 func (l *lifecycle) Stop(shutdownContext context.Context) {
 	l.mutex.Lock()
+	if l.state == StateStopping || l.state == StateStopped || l.state == StateCrashed {
+		l.mutex.Unlock()
+		return
+	}
 	l.shutdownContext = shutdownContext
 	l.mutex.Unlock()
 	l.cancelRun()
-	<-l.waitContext.Done()
+	_ = l.Wait()
 }
 
 func (l *lifecycle) Run() error {
@@ -82,8 +83,11 @@ func (l *lifecycle) Run() error {
 		if crash := recover(); crash != nil {
 			l.crashed(fmt.Errorf("service paniced (%v)", crash))
 		}
+		l.cancelWaitContext()
 	}()
 
+	l.lastError = nil
+	l.waitContext, l.cancelWaitContext = context.WithCancel(context.Background())
 	l.starting()
 	err := l.service.RunWithLifecycle(l)
 	if err != nil {
@@ -108,7 +112,6 @@ func (l *lifecycle) callSimpleHook(hooks []func(s Service, l Lifecycle)) {
 }
 
 func (l *lifecycle) stateChange(state State) {
-	l.logger.Debugf("service %s is now %s", l.service.String(), l.state)
 	wg := &sync.WaitGroup{}
 	stateChangeHandlers := l.onStateChange
 	wg.Add(len(stateChangeHandlers))
@@ -126,8 +129,6 @@ func (l *lifecycle) starting() {
 	l.mutex.Lock()
 
 	l.state = StateStarting
-	l.lastError = nil
-	l.waitContext, l.cancelWaitContext = context.WithCancel(context.Background())
 	l.mutex.Unlock()
 	l.stateChange(StateStarting)
 	l.callSimpleHook(l.onStarting)
@@ -173,7 +174,6 @@ func (l *lifecycle) stopped() {
 
 	l.stateChange(StateStopped)
 	l.callSimpleHook(l.onStopped)
-	l.cancelWaitContext()
 }
 
 func (l *lifecycle) crashed(err error) {
@@ -193,7 +193,6 @@ func (l *lifecycle) crashed(err error) {
 		}()
 	}
 	wg.Wait()
-	l.cancelWaitContext()
 }
 
 func (l *lifecycle) OnStateChange(f func(s Service, l Lifecycle, state State)) Lifecycle {

@@ -2,21 +2,16 @@ package service_test
 
 import (
 	"context"
-	"io/ioutil"
 	"testing"
 
-	"github.com/containerssh/log"
-	"github.com/containerssh/log/formatter/ljson"
-	"github.com/containerssh/log/pipeline"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/containerssh/service"
 )
 
 func TestEmptyPool(t *testing.T) {
-	logger := pipeline.NewLoggerPipeline(log.LevelInfo, ljson.NewLJsonLogFormatter(), ioutil.Discard)
-	pool := service.NewPool(service.NewLifecycleFactory(logger), logger)
-	lifecycle := service.NewLifecycle(pool, logger)
+	pool := service.NewPool(service.NewLifecycleFactory())
+	lifecycle := service.NewLifecycle(pool)
 	started := make(chan bool)
 	stopped := make(chan bool)
 	lifecycle.OnRunning(func(s service.Service, l service.Lifecycle) {
@@ -35,9 +30,8 @@ func TestEmptyPool(t *testing.T) {
 }
 
 func TestOneService(t *testing.T) {
-	logger := pipeline.NewLoggerPipeline(log.LevelInfo, ljson.NewLJsonLogFormatter(), ioutil.Discard)
-	pool := service.NewPool(service.NewLifecycleFactory(logger), logger)
-	poolLifecycle := service.NewLifecycle(pool, logger)
+	pool := service.NewPool(service.NewLifecycleFactory())
+	poolLifecycle := service.NewLifecycle(pool)
 	poolStarted := make(chan bool)
 	poolStopped := make(chan bool)
 	var poolStates []service.State
@@ -49,7 +43,7 @@ func TestOneService(t *testing.T) {
 		poolStates = append(poolStates, state)
 	})
 
-	s := newTestService()
+	s := newTestService("Test service")
 	pool.Add(s).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
 		serviceStates = append(serviceStates, state)
 	})
@@ -75,5 +69,249 @@ func TestOneService(t *testing.T) {
 		service.StateRunning,
 		service.StateStopping,
 		service.StateStopped,
+	}, poolStates)
+}
+
+func TestOneServiceCrash(t *testing.T) {
+	pool := service.NewPool(service.NewLifecycleFactory())
+	poolLifecycle := service.NewLifecycle(pool)
+	poolStarted := make(chan bool)
+	poolStopped := make(chan bool)
+	var poolStates []service.State
+	var serviceStates []service.State
+	poolLifecycle.OnRunning(func(s service.Service, l service.Lifecycle) {
+		poolStarted <- true
+	})
+	poolLifecycle.OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		poolStates = append(poolStates, state)
+	})
+
+	s := newTestService("Test service")
+	pool.Add(s).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		serviceStates = append(serviceStates, state)
+	})
+
+	go func() {
+		err := poolLifecycle.Run()
+		if err == nil {
+			t.Fail()
+		}
+		poolStopped <- true
+	}()
+
+	<-poolStarted
+	s.Crash()
+	err := poolLifecycle.Wait()
+	assert.NotNil(t, err)
+	assert.Equal(t, []service.State{
+		service.StateStarting,
+		service.StateRunning,
+		service.StateCrashed,
+	}, serviceStates)
+	assert.Equal(t, []service.State{
+		service.StateStarting,
+		service.StateRunning,
+		service.StateCrashed,
+	}, poolStates)
+}
+
+func TestOneServiceStartupCrash(t *testing.T) {
+	pool := service.NewPool(service.NewLifecycleFactory())
+	poolLifecycle := service.NewLifecycle(pool)
+	var poolStates []service.State
+	var serviceStates []service.State
+	startup := make(chan struct{})
+	poolLifecycle.OnStarting(func(s service.Service, l service.Lifecycle) {
+		startup <- struct{}{}
+	})
+	poolLifecycle.OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		poolStates = append(poolStates, state)
+	})
+
+	s := newTestService("Test service")
+	s.CrashStartup()
+	pool.Add(s).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		serviceStates = append(serviceStates, state)
+	})
+
+	go func() {
+		err := poolLifecycle.Run()
+		if err == nil {
+			t.Fail()
+		}
+	}()
+
+	<-startup
+	err := poolLifecycle.Wait()
+	assert.NotNil(t, err)
+	assert.Equal(t, []service.State{
+		service.StateStarting,
+		service.StateCrashed,
+	}, serviceStates)
+	assert.Equal(t, []service.State{
+		service.StateStarting,
+		service.StateStopping,
+		service.StateCrashed,
+	}, poolStates)
+}
+
+func TestTwoServices(t *testing.T) {
+	pool := service.NewPool(service.NewLifecycleFactory())
+	poolLifecycle := service.NewLifecycle(pool)
+	poolStarted := make(chan bool)
+	poolStopped := make(chan bool)
+	var poolStates []service.State
+	var serviceStates1 []service.State
+	var serviceStates2 []service.State
+	poolLifecycle.OnRunning(func(s service.Service, l service.Lifecycle) {
+		poolStarted <- true
+	})
+	poolLifecycle.OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		poolStates = append(poolStates, state)
+	})
+
+	s1 := newTestService("Test service 1")
+	pool.Add(s1).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		serviceStates1 = append(serviceStates1, state)
+	})
+
+	s2 := newTestService("Test service 2")
+	pool.Add(s2).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		serviceStates2 = append(serviceStates2, state)
+	})
+
+	go func() {
+		err := poolLifecycle.Run()
+		if err != nil {
+			t.Fail()
+		}
+		poolStopped <- true
+	}()
+
+	<-poolStarted
+	poolLifecycle.Stop(context.Background())
+	assert.Equal(t, []service.State{
+		service.StateStarting,
+		service.StateRunning,
+		service.StateStopping,
+		service.StateStopped,
+	}, serviceStates1)
+	assert.Equal(t, []service.State{
+		service.StateStarting,
+		service.StateRunning,
+		service.StateStopping,
+		service.StateStopped,
+	}, serviceStates2)
+	assert.Equal(t, []service.State{
+		service.StateStarting,
+		service.StateRunning,
+		service.StateStopping,
+		service.StateStopped,
+	}, poolStates)
+}
+
+func TestTwoServicesOneCrashed(t *testing.T) {
+	pool := service.NewPool(service.NewLifecycleFactory())
+	poolLifecycle := service.NewLifecycle(pool)
+	poolStarted := make(chan bool)
+	poolStopped := make(chan bool)
+	var poolStates []service.State
+	var serviceStates1 []service.State
+	var serviceStates2 []service.State
+	poolLifecycle.OnRunning(func(s service.Service, l service.Lifecycle) {
+		poolStarted <- true
+	})
+	poolLifecycle.OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		poolStates = append(poolStates, state)
+	})
+
+	s1 := newTestService("Test service 1")
+	pool.Add(s1).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		serviceStates1 = append(serviceStates1, state)
+	})
+
+	s2 := newTestService("Test service 2")
+	pool.Add(s2).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		serviceStates2 = append(serviceStates2, state)
+	})
+
+	go func() {
+		err := poolLifecycle.Run()
+		if err == nil {
+			t.Fail()
+		}
+		poolStopped <- true
+	}()
+
+	<-poolStarted
+	s1.Crash()
+	<-poolStopped
+	assert.Equal(t, []service.State{
+		service.StateStarting,
+		service.StateRunning,
+		service.StateCrashed,
+	}, serviceStates1)
+	assert.Equal(t, []service.State{
+		service.StateStarting,
+		service.StateRunning,
+		service.StateStopping,
+		service.StateStopped,
+	}, serviceStates2)
+	assert.Equal(t, []service.State{
+		service.StateStarting,
+		service.StateRunning,
+		service.StateCrashed,
+	}, poolStates)
+}
+
+func TestTwoServicesOneTerminatedDuringStartup(t *testing.T) {
+	pool := service.NewPool(service.NewLifecycleFactory())
+	poolLifecycle := service.NewLifecycle(pool)
+	poolStarted := make(chan bool)
+	poolStopped := make(chan bool)
+	var poolStates []service.State
+	var serviceStates1 []service.State
+	var serviceStates2 []service.State
+	poolLifecycle.OnRunning(func(s service.Service, l service.Lifecycle) {
+		poolStarted <- true
+	})
+	poolLifecycle.OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		poolStates = append(poolStates, state)
+	})
+
+	s1 := newTestService("Test service 1")
+	s1.CrashStartup()
+	pool.Add(s1).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		serviceStates1 = append(serviceStates1, state)
+	})
+
+	s2 := newTestService("Test service 2")
+	pool.Add(s2).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		serviceStates2 = append(serviceStates2, state)
+	})
+
+	go func() {
+		err := poolLifecycle.Run()
+		if err == nil {
+			t.Fail()
+		}
+		poolStopped <- true
+	}()
+
+	<-poolStopped
+	assert.Equal(t, []service.State{
+		service.StateStarting,
+		service.StateCrashed,
+	}, serviceStates1)
+	assert.Equal(t, []service.State{
+		service.StateStarting,
+		service.StateRunning,
+		service.StateStopping,
+		service.StateStopped,
+	}, serviceStates2)
+	assert.Equal(t, []service.State{
+		service.StateStarting,
+		service.StateStopping,
+		service.StateCrashed,
 	}, poolStates)
 }
