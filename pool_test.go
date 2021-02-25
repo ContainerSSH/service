@@ -4,13 +4,14 @@ import (
 	"context"
 	"testing"
 
+	"github.com/containerssh/log"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/containerssh/service"
 )
 
 func TestEmptyPool(t *testing.T) {
-	pool := service.NewPool(service.NewLifecycleFactory())
+	pool := service.NewPool(service.NewLifecycleFactory(), log.NewTestLogger(t))
 	lifecycle := service.NewLifecycle(pool)
 	started := make(chan bool)
 	stopped := make(chan bool)
@@ -30,7 +31,7 @@ func TestEmptyPool(t *testing.T) {
 }
 
 func TestOneService(t *testing.T) {
-	pool := service.NewPool(service.NewLifecycleFactory())
+	pool := service.NewPool(service.NewLifecycleFactory(), log.NewTestLogger(t))
 	poolLifecycle := service.NewLifecycle(pool)
 	poolStarted := make(chan bool)
 	poolStopped := make(chan bool)
@@ -73,7 +74,7 @@ func TestOneService(t *testing.T) {
 }
 
 func TestOneServiceCrash(t *testing.T) {
-	pool := service.NewPool(service.NewLifecycleFactory())
+	pool := service.NewPool(service.NewLifecycleFactory(), log.NewTestLogger(t))
 	poolLifecycle := service.NewLifecycle(pool)
 	poolStarted := make(chan bool)
 	poolStopped := make(chan bool)
@@ -116,7 +117,7 @@ func TestOneServiceCrash(t *testing.T) {
 }
 
 func TestOneServiceStartupCrash(t *testing.T) {
-	pool := service.NewPool(service.NewLifecycleFactory())
+	pool := service.NewPool(service.NewLifecycleFactory(), log.NewTestLogger(t))
 	poolLifecycle := service.NewLifecycle(pool)
 	var poolStates []service.State
 	var serviceStates []service.State
@@ -156,7 +157,7 @@ func TestOneServiceStartupCrash(t *testing.T) {
 }
 
 func TestTwoServices(t *testing.T) {
-	pool := service.NewPool(service.NewLifecycleFactory())
+	pool := service.NewPool(service.NewLifecycleFactory(), log.NewTestLogger(t))
 	poolLifecycle := service.NewLifecycle(pool)
 	poolStarted := make(chan bool)
 	poolStopped := make(chan bool)
@@ -211,7 +212,7 @@ func TestTwoServices(t *testing.T) {
 }
 
 func TestTwoServicesOneCrashed(t *testing.T) {
-	pool := service.NewPool(service.NewLifecycleFactory())
+	pool := service.NewPool(service.NewLifecycleFactory(), log.NewTestLogger(t))
 	poolLifecycle := service.NewLifecycle(pool)
 	poolStarted := make(chan bool)
 	poolStopped := make(chan bool)
@@ -265,7 +266,7 @@ func TestTwoServicesOneCrashed(t *testing.T) {
 }
 
 func TestTwoServicesOneTerminatedDuringStartup(t *testing.T) {
-	pool := service.NewPool(service.NewLifecycleFactory())
+	pool := service.NewPool(service.NewLifecycleFactory(), log.NewTestLogger(t))
 	poolLifecycle := service.NewLifecycle(pool)
 	poolStarted := make(chan bool)
 	poolStopped := make(chan bool)

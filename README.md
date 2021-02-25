@@ -104,10 +104,11 @@ First, let's create a pool:
 ```go
 pool := service.NewPool(
     service.NewLifecycleFactory(),
+    logger,
 )
 ```
 
-You can then add subservices to the pool. When adding a service the pool will return the lifecycle object you can use to add hooks. The hook functions can be chained for easier configuration:
+The `logger` variable is a logger from [the log package](https://github.com/containerssh/log). You can then add subservices to the pool. When adding a service the pool will return the lifecycle object you can use to add hooks. The hook functions can be chained for easier configuration:
 
 ```go
 _ = pool.
