@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.2: Version bump
+
+Version bump to work around Go caching.
+
 ## 0.9.1: Better logging
 
 This release adds logging for service start/stop in pools.
