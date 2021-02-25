@@ -76,6 +76,16 @@ func (p *pool) RunWithLifecycle(lifecycle Lifecycle) error {
 		}
 	}
 
+	startedServices = p.processRunning(lifecycle, stopped, startedServices)
+
+	for i := 0; i < startedServices; i++ {
+		<-p.stopComplete
+	}
+	p.logger.Info(log.NewMessage(MServicesStopped, "All services have stopped."))
+	return p.lastError
+}
+
+func (p *pool) processRunning(lifecycle Lifecycle, stopped bool, startedServices int) int {
 	if !stopped {
 		p.logger.Info(log.NewMessage(MServicesRunning, "All services are now running."))
 
@@ -96,12 +106,7 @@ func (p *pool) RunWithLifecycle(lifecycle Lifecycle) error {
 		lifecycle.Stopping()
 		p.triggerStop(context.Background())
 	}
-
-	for i := 0; i < startedServices; i++ {
-		<-p.stopComplete
-	}
-	p.logger.Info(log.NewMessage(MServicesStopped, "All services have stopped."))
-	return p.lastError
+	return startedServices
 }
 
 func (p *pool) runService(service Service) {
