@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.3: Version bump, codes doc
+
+This release adds the CODES.md file with the documentation of message codes and
+bumps the log module version.
+
 ## 0.9.2: Version bump
 
 Version bump to work around Go caching.
