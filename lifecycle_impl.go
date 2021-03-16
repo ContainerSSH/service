@@ -58,7 +58,9 @@ func (l *lifecycle) Wait() error {
 	}
 	waitContext := l.waitContext
 	l.mutex.Unlock()
-	<-waitContext.Done()
+	if waitContext != nil {
+		<-waitContext.Done()
+	}
 	return l.lastError
 }
 
