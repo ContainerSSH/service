@@ -181,7 +181,7 @@ func TestTwoServices(t *testing.T) {
 		func(s service.Service, l service.Lifecycle, state service.State) {
 			testLock.Lock()
 			defer testLock.Unlock()
-			serviceStates1 = append(serviceStates1, state)
+			*serviceStates1 = append(*serviceStates1, state)
 		},
 	)
 
@@ -190,7 +190,7 @@ func TestTwoServices(t *testing.T) {
 		func(s service.Service, l service.Lifecycle, state service.State) {
 			testLock.Lock()
 			defer testLock.Unlock()
-			serviceStates2 = append(serviceStates2, state)
+			*serviceStates2 = append(*serviceStates2, state)
 		},
 	)
 
@@ -211,9 +211,9 @@ func TestTwoServices(t *testing.T) {
 func verifyTwoServiceExecutionOrder(
 	t *testing.T,
 	testLock *sync.Mutex,
-	serviceStates1 []service.State,
-	serviceStates2 []service.State,
-	poolStates []service.State,
+	serviceStates1 *[]service.State,
+	serviceStates2 *[]service.State,
+	poolStates *[]service.State,
 ) {
 	testLock.Lock()
 	defer testLock.Unlock()
@@ -223,7 +223,7 @@ func verifyTwoServiceExecutionOrder(
 			service.StateRunning,
 			service.StateStopping,
 			service.StateStopped,
-		}, serviceStates1,
+		}, *serviceStates1,
 	)
 	assert.Equal(
 		t, []service.State{
@@ -231,7 +231,7 @@ func verifyTwoServiceExecutionOrder(
 			service.StateRunning,
 			service.StateStopping,
 			service.StateStopped,
-		}, serviceStates2,
+		}, *serviceStates2,
 	)
 	assert.Equal(
 		t, []service.State{
@@ -239,7 +239,7 @@ func verifyTwoServiceExecutionOrder(
 			service.StateRunning,
 			service.StateStopping,
 			service.StateStopped,
-		}, poolStates,
+		}, *poolStates,
 	)
 }
 
@@ -248,17 +248,17 @@ func setupPoolForTwoServiceTest(t *testing.T, testLock *sync.Mutex) (
 	service.Lifecycle,
 	chan bool,
 	chan bool,
-	[]service.State,
-	[]service.State,
-	[]service.State,
+	*[]service.State,
+	*[]service.State,
+	*[]service.State,
 ) {
 	pool := service.NewPool(service.NewLifecycleFactory(), log.NewTestLogger(t))
 	poolLifecycle := service.NewLifecycle(pool)
 	poolStarted := make(chan bool)
 	poolStopped := make(chan bool)
-	var poolStates []service.State
-	var serviceStates1 []service.State
-	var serviceStates2 []service.State
+	poolStates := &[]service.State{}
+	serviceStates1 := &[]service.State{}
+	serviceStates2 := &[]service.State{}
 	poolLifecycle.OnRunning(
 		func(s service.Service, l service.Lifecycle) {
 			poolStarted <- true
@@ -269,7 +269,7 @@ func setupPoolForTwoServiceTest(t *testing.T, testLock *sync.Mutex) (
 			testLock.Lock()
 			defer testLock.Unlock()
 
-			poolStates = append(poolStates, state)
+			*poolStates = append(*poolStates, state)
 		},
 	)
 	return pool, poolLifecycle, poolStarted, poolStopped, poolStates, serviceStates1, serviceStates2

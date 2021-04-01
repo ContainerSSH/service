@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0: First stable version
+
+This release tags the first stable version for ContainerSSH 0.4.0.
+
 ## 0.9.3: Version bump, codes doc
 
 This release adds the CODES.md file with the documentation of message codes and
