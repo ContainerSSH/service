@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/containerssh/log"
@@ -74,6 +75,7 @@ func TestOneService(t *testing.T) {
 }
 
 func TestOneServiceCrash(t *testing.T) {
+	testLock := &sync.Mutex{}
 	pool := service.NewPool(service.NewLifecycleFactory(), log.NewTestLogger(t))
 	poolLifecycle := service.NewLifecycle(pool)
 	poolStarted := make(chan bool)
@@ -84,11 +86,15 @@ func TestOneServiceCrash(t *testing.T) {
 		poolStarted <- true
 	})
 	poolLifecycle.OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		testLock.Lock()
+		defer testLock.Unlock()
 		poolStates = append(poolStates, state)
 	})
 
 	s := newTestService("Test service")
 	pool.Add(s).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		testLock.Lock()
+		defer testLock.Unlock()
 		serviceStates = append(serviceStates, state)
 	})
 
@@ -103,6 +109,7 @@ func TestOneServiceCrash(t *testing.T) {
 	<-poolStarted
 	s.Crash()
 	err := poolLifecycle.Wait()
+	testLock.Lock()
 	assert.NotNil(t, err)
 	assert.Equal(t, []service.State{
 		service.StateStarting,
@@ -114,9 +121,11 @@ func TestOneServiceCrash(t *testing.T) {
 		service.StateRunning,
 		service.StateCrashed,
 	}, poolStates)
+	testLock.Unlock()
 }
 
 func TestOneServiceStartupCrash(t *testing.T) {
+	testLock := &sync.Mutex{}
 	pool := service.NewPool(service.NewLifecycleFactory(), log.NewTestLogger(t))
 	poolLifecycle := service.NewLifecycle(pool)
 	var poolStates []service.State
@@ -132,6 +141,8 @@ func TestOneServiceStartupCrash(t *testing.T) {
 	s := newTestService("Test service")
 	s.CrashStartup()
 	pool.Add(s).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		testLock.Lock()
+		defer testLock.Unlock()
 		serviceStates = append(serviceStates, state)
 	})
 
@@ -144,6 +155,7 @@ func TestOneServiceStartupCrash(t *testing.T) {
 
 	<-startup
 	err := poolLifecycle.Wait()
+	testLock.Lock()
 	assert.NotNil(t, err)
 	assert.Equal(t, []service.State{
 		service.StateStarting,
@@ -154,9 +166,11 @@ func TestOneServiceStartupCrash(t *testing.T) {
 		service.StateStopping,
 		service.StateCrashed,
 	}, poolStates)
+	testLock.Unlock()
 }
 
 func TestTwoServices(t *testing.T) {
+	testLock := &sync.Mutex{}
 	pool := service.NewPool(service.NewLifecycleFactory(), log.NewTestLogger(t))
 	poolLifecycle := service.NewLifecycle(pool)
 	poolStarted := make(chan bool)
@@ -168,16 +182,23 @@ func TestTwoServices(t *testing.T) {
 		poolStarted <- true
 	})
 	poolLifecycle.OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		testLock.Lock()
+		defer testLock.Unlock()
+
 		poolStates = append(poolStates, state)
 	})
 
 	s1 := newTestService("Test service 1")
 	pool.Add(s1).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		testLock.Lock()
+		defer testLock.Unlock()
 		serviceStates1 = append(serviceStates1, state)
 	})
 
 	s2 := newTestService("Test service 2")
 	pool.Add(s2).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		testLock.Lock()
+		defer testLock.Unlock()
 		serviceStates2 = append(serviceStates2, state)
 	})
 
@@ -191,6 +212,9 @@ func TestTwoServices(t *testing.T) {
 
 	<-poolStarted
 	poolLifecycle.Stop(context.Background())
+	testLock.Lock()
+	defer testLock.Unlock()
+
 	assert.Equal(t, []service.State{
 		service.StateStarting,
 		service.StateRunning,
@@ -212,6 +236,7 @@ func TestTwoServices(t *testing.T) {
 }
 
 func TestTwoServicesOneCrashed(t *testing.T) {
+	testLock := &sync.Mutex{}
 	pool := service.NewPool(service.NewLifecycleFactory(), log.NewTestLogger(t))
 	poolLifecycle := service.NewLifecycle(pool)
 	poolStarted := make(chan bool)
@@ -223,16 +248,22 @@ func TestTwoServicesOneCrashed(t *testing.T) {
 		poolStarted <- true
 	})
 	poolLifecycle.OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		testLock.Lock()
+		defer testLock.Unlock()
 		poolStates = append(poolStates, state)
 	})
 
 	s1 := newTestService("Test service 1")
 	pool.Add(s1).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		testLock.Lock()
+		defer testLock.Unlock()
 		serviceStates1 = append(serviceStates1, state)
 	})
 
 	s2 := newTestService("Test service 2")
 	pool.Add(s2).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		testLock.Lock()
+		defer testLock.Unlock()
 		serviceStates2 = append(serviceStates2, state)
 	})
 
@@ -247,6 +278,8 @@ func TestTwoServicesOneCrashed(t *testing.T) {
 	<-poolStarted
 	s1.Crash()
 	<-poolStopped
+	testLock.Lock()
+	defer testLock.Unlock()
 	assert.Equal(t, []service.State{
 		service.StateStarting,
 		service.StateRunning,
@@ -266,6 +299,7 @@ func TestTwoServicesOneCrashed(t *testing.T) {
 }
 
 func TestTwoServicesOneTerminatedDuringStartup(t *testing.T) {
+	testLock := &sync.Mutex{}
 	pool := service.NewPool(service.NewLifecycleFactory(), log.NewTestLogger(t))
 	poolLifecycle := service.NewLifecycle(pool)
 	poolStarted := make(chan bool)
@@ -277,17 +311,23 @@ func TestTwoServicesOneTerminatedDuringStartup(t *testing.T) {
 		poolStarted <- true
 	})
 	poolLifecycle.OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		testLock.Lock()
+		defer testLock.Unlock()
 		poolStates = append(poolStates, state)
 	})
 
 	s1 := newTestService("Test service 1")
 	s1.CrashStartup()
 	pool.Add(s1).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		testLock.Lock()
+		defer testLock.Unlock()
 		serviceStates1 = append(serviceStates1, state)
 	})
 
 	s2 := newTestService("Test service 2")
 	pool.Add(s2).OnStateChange(func(s service.Service, l service.Lifecycle, state service.State) {
+		testLock.Lock()
+		defer testLock.Unlock()
 		serviceStates2 = append(serviceStates2, state)
 	})
 
@@ -300,6 +340,8 @@ func TestTwoServicesOneTerminatedDuringStartup(t *testing.T) {
 	}()
 
 	<-poolStopped
+	testLock.Lock()
+	defer testLock.Unlock()
 	assert.Equal(t, []service.State{
 		service.StateStarting,
 		service.StateCrashed,
