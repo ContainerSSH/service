@@ -4,7 +4,7 @@ go 1.14
 
 require (
 	github.com/containerssh/log v1.0.0
-	github.com/stretchr/testify v1.7.0
+	github.com/stretchr/testify v1.7.4
 )
 
 // Fixes CVE-2019-11254
